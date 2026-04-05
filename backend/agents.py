@@ -58,13 +58,11 @@ class QuestionAnswer:
     # This stores the grounded answer text returned by Agent 2.
     answer: str
     # This stores the clearest next action so the UI can surface a concise recommendation.
-    action: str
+    action: str | None
     # This stores the best contact or owning team when the user needs a handoff.
-    who_to_contact: str
+    who_to_contact: str | None
     # This stores the answer risk level so the UI can highlight sensitive guidance.
-    risk_level: str
-    # This stores a simple confidence score so missing or conflicting info can be surfaced.
-    confidence: float
+    risk_level: str | None
     # This stores suggested follow-up steps so the UI can feel more actionable.
     next_steps: list[str]
     # This stores source names so the UI can surface document provenance on every answer.
@@ -178,14 +176,10 @@ class KnowledgeAgents:
             # This returns a graceful fallback because there was no useful evidence to ground an answer.
             return QuestionAnswer(
                 answer="I could not find a grounded answer in the uploaded company documents.",
-                action="Ask the document owner to add or clarify the missing information.",
-                who_to_contact="The document owner or onboarding lead",
-                risk_level="medium",
-                confidence=0.0,
-                next_steps=[
-                    "Check whether the relevant policy or process document has been uploaded.",
-                    "Ask the onboarding lead for the missing source of truth.",
-                ],
+                action=None,
+                who_to_contact=None,
+                risk_level=None,
+                next_steps=[],
                 source_docs=[],
                 freshness=[],
                 retrieved_chunks=[],
@@ -197,7 +191,11 @@ class KnowledgeAgents:
         # This builds the role-specific system prompt so the answer respects role boundaries.
         system_prompt = build_search_system_prompt(normalized_role)
         # This builds the user prompt combining the question and retrieved context.
-        user_prompt = build_answer_user_prompt(question=question, context_block=context_block)
+        user_prompt = build_answer_user_prompt(
+            question=question,
+            context_block=context_block,
+            role=normalized_role,
+        )
 
         # This asks the model to answer from retrieved evidence instead of relying on prior knowledge.
         response = self.client.responses.create(
@@ -229,7 +227,6 @@ class KnowledgeAgents:
             action=parsed_answer["action"],
             who_to_contact=parsed_answer["who_to_contact"],
             risk_level=parsed_answer["risk_level"],
-            confidence=parsed_answer["confidence"],
             next_steps=parsed_answer["next_steps"],
             source_docs=parsed_answer["sources"],
             freshness=freshness,
@@ -416,38 +413,21 @@ def _parse_answer_payload(
         # This falls back to a predictable structure so the UI still receives a usable response.
         return {
             "answer": response_text,
-            "action": "Verify the answer with the relevant team before taking action.",
-            "who_to_contact": "The team or document owner responsible for this process",
-            "risk_level": "medium",
-            "confidence": 0.3,
-            "next_steps": [
-                "Review the cited documents manually.",
-                "Ask the relevant owner to confirm the process.",
-            ],
+            "action": None,
+            "who_to_contact": None,
+            "risk_level": None,
+            "next_steps": [],
             "sources": fallback_source_docs,
         }
 
     # This extracts the model-provided answer text while defaulting safely if the field is missing.
     answer = str(payload.get("answer", "")).strip()
-    # This extracts the recommended action so the UI can surface it prominently.
-    action = str(payload.get("action", "")).strip()
-    # This extracts the contact recommendation so handoffs are explicit.
-    who_to_contact = str(payload.get("who_to_contact", "")).strip()
-    # This normalizes the risk level so the UI receives a predictable lowercase badge value.
-    risk_level = str(payload.get("risk_level", "medium")).strip().lower() or "medium"
-
-    # This reads the raw confidence value so it can be coerced into a safe float range.
-    raw_confidence = payload.get("confidence", 0.5)
-
-    try:
-        # This converts confidence into a float so the frontend can render it consistently.
-        confidence = float(raw_confidence)
-    except (TypeError, ValueError):
-        # This falls back to a neutral confidence when the model returns an invalid value.
-        confidence = 0.5
-
-    # This clamps confidence into the expected range so the contract stays stable.
-    confidence = max(0.0, min(1.0, confidence))
+    # This reads the optional action field without inventing a value when the model returned null.
+    action = _coerce_optional_string(payload.get("action"))
+    # This reads the optional contact field without inventing a value when the model returned null.
+    who_to_contact = _coerce_optional_string(payload.get("who_to_contact"))
+    # This reads the optional risk field without inventing a value when the model returned null.
+    risk_level = _coerce_optional_string(payload.get("risk_level"))
 
     # This normalizes next steps into strings so the UI can render them as bullet points.
     next_steps = [str(item) for item in payload.get("next_steps", [])]
@@ -457,13 +437,30 @@ def _parse_answer_payload(
     # This returns the normalized structured answer payload for the API response layer.
     return {
         "answer": answer or "I could not produce a grounded answer from the retrieved context.",
-        "action": action or "Review the relevant documents and confirm the next action with the owner.",
-        "who_to_contact": who_to_contact or "The relevant process owner",
-        "risk_level": risk_level if risk_level in {"low", "medium", "high"} else "medium",
-        "confidence": confidence,
+        "action": action,
+        "who_to_contact": who_to_contact,
+        "risk_level": risk_level if risk_level in {"low", "medium", "high"} else None,
         "next_steps": next_steps,
         "sources": [str(item) for item in source_docs],
     }
+
+
+def _coerce_optional_string(value: Any) -> str | None:
+    # This returns null directly so optional prompt fields stay optional in the parsed payload.
+    if value is None:
+        # This preserves the model's explicit null instead of replacing it with boilerplate text.
+        return None
+
+    # This normalizes the value into a stripped string so blank strings can be treated as missing.
+    normalized_value = str(value).strip()
+
+    # This treats empty strings and literal null markers as missing optional fields.
+    if normalized_value.lower() in {"", "null", "none"}:
+        # This keeps optional UI fields hidden when the model did not populate them meaningfully.
+        return None
+
+    # This returns the normalized string for real optional field values.
+    return normalized_value
 
 
 def _build_freshness_payload(retrieved_chunks: list[SearchResult]) -> list[dict[str, str]]:

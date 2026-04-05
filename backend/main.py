@@ -189,7 +189,6 @@ def search_knowledge(request: SearchRequest) -> dict[str, object]:
         "action": question_answer.action,
         "who_to_contact": question_answer.who_to_contact,
         "risk_level": question_answer.risk_level,
-        "confidence": question_answer.confidence,
         "next_steps": question_answer.next_steps,
         "sources": question_answer.source_docs,
         "freshness": question_answer.freshness,

@@ -92,35 +92,45 @@ def build_search_system_prompt(role: str) -> str:
 
     # This pulls role-specific guidance so the answer is role-aware instead of generic.
     role_guidance = ROLE_GUIDANCE[normalized_role]
-    # This flags technical-role behavior so non-engineering roles do not get implementation-heavy instructions.
-    hide_technical_steps = normalized_role != "junior engineer"
 
-    # This system prompt tells the model to answer only from retrieved knowledge with role boundaries.
-    return f"""
-You are Agent 2, the Knowledge Search Agent for a company onboarding assistant.
-You are answering a specific question for a {normalized_role}.
+    # This system prompt enforces markdown formatting per question type so answers never come out as flat paragraphs.
+    return f"""You are Day 1 Brain, an onboarding assistant for a new {normalized_role}.
+You answer questions strictly from the provided company documents.
 
-Only use the provided context.
-Only recommend actions that are relevant and accessible to the user's role.
-If the answer depends on another team, state who owns it.
-If the context is incomplete, say exactly what is missing.
-If the role is non-technical, avoid detailed implementation or terminal steps.
-Hide technical steps for this role: {hide_technical_steps}
-If documents conflict or information is missing, lower confidence and explain why briefly.
-Set risk_level to one of: low, medium, high.
-Set confidence to a float between 0 and 1.
-Return valid JSON only using this exact shape:
+ANSWER FORMATTING RULES — follow these exactly:
+- Never write a plain paragraph. Always use markdown structure.
+- For howto questions: use a numbered list. Each step is one sentence max.
+- For factual questions: one bold key fact, then 1-2 sentences of context.
+- For people questions: bold the person's name, then their role and contact on the same line.
+- For policy questions: use bullet points, one rule per bullet.
+- For unknown: single sentence saying the information is not in the available documents.
+
+CITATION RULES — mandatory:
+- After every key fact, command, name, or rule — add the source filename in brackets: [source.md]
+- When the document contains an exact command, URL, Slack handle, or policy line —
+  reproduce it verbatim wrapped in italic markdown like: *exact text from document*
+- Do not paraphrase technical details, names, or commands. Copy them exactly.
+- If two documents contradict each other, add a warning Conflict note explicitly.
+
+ROLE FILTER:
+- You are answering for a {normalized_role}.
+- {role_guidance}
+- If an access restriction applies to this role, lead with it in bold.
+- Only mention who to contact if a specific person is named in the documents for this topic.
+
+OUTPUT — respond only in this JSON format:
 {{
-  "answer": "string",
-  "action": "string",
-  "who_to_contact": "string",
-  "risk_level": "low",
-  "confidence": 0.0,
-  "next_steps": ["string", "string"],
-  "sources": ["string", "string"]
+  "query_type": "howto | factual | people | policy | unknown",
+  "answer": "fully markdown-formatted answer with inline citations and verbatim italic quotes",
+  "sources": ["doc1.md", "doc2.md"],
+  "action": "one specific next step the user must take, or null",
+  "who_to_contact": "Name (@slack) — reason, or null",
+  "risk_level": "low | medium | high | null",
+  "next_steps": []
 }}
-{role_guidance}
-""".strip()
+
+Only populate action, who_to_contact, and risk_level when genuinely relevant.
+Leave them null for straightforward informational answers."""
 
 
 def build_brief_user_prompt(context_block: str) -> str:
@@ -134,17 +144,18 @@ Return JSON only.
 """.strip()
 
 
-def build_answer_user_prompt(question: str, context_block: str) -> str:
-    # This user prompt frames the question alongside the retrieval context for grounded answering.
-    return f"""
-Question:
+def build_answer_user_prompt(question: str, context_block: str, role: str) -> str:
+    # This user prompt reinforces markdown formatting and verbatim citations so the answer stays grounded.
+    return f"""QUESTION (from a new {role}):
 {question}
 
-Retrieved company context:
+COMPANY DOCUMENTS:
 {context_block}
 
-Answer the question directly.
-Recommend the clearest next action.
-Identify who the user should contact if another team owns the process.
-Return JSON only.
-""".strip()
+INSTRUCTIONS:
+- Structure the answer using markdown — no plain paragraphs.
+- Copy exact commands, names, URLs, and policy lines verbatim in italics.
+- Cite the source filename in brackets after each fact: [filename.md]
+- Do not guess. If the answer is not in the documents, say so in one sentence.
+- Keep the answer scannable — a new hire should be able to act on it in 30 seconds.
+Return JSON only."""

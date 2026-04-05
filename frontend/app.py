@@ -80,60 +80,75 @@ if "health_payload" not in st.session_state:
 
 
 def render_answer_details(chat_message: dict[str, object]) -> None:
-    # This skips the detail card when the message has no structured assistant metadata.
-    if not chat_message.get("sources"):
-        # This exits early because plain error messages do not need decision details.
-        return
+    # This reads optional assistant metadata once so rendering logic can stay concise below.
+    action = chat_message.get("action")
+    # This reads the optional contact field once so rendering logic can stay concise below.
+    who_to_contact = chat_message.get("who_to_contact")
+    # This reads the optional risk field once so rendering logic can stay concise below.
+    risk_level = chat_message.get("risk_level")
+    # This reads next steps once so rendering logic can stay concise below.
+    next_steps = chat_message.get("next_steps", [])
+    # This reads sources once so the citation expander can be shown only when useful.
+    sources = chat_message.get("sources", [])
+    # This reads freshness once so the citation expander can include document recency.
+    freshness = chat_message.get("freshness", [])
 
-    # This renders the answer metadata in a bordered card so assistant responses feel more productized.
-    with st.container(border=True):
-        # This lays out the top summary fields in compact columns so they scan like chatbot metadata.
-        summary_columns = st.columns(3)
+    # This shows the decision card only when the answer actually includes actionable structured fields.
+    if action or who_to_contact or risk_level or next_steps:
+        # This renders the optional answer metadata in a bordered card so only relevant fields appear.
+        with st.container(border=True):
+            # This shows the next action only when the answer truly requires one.
+            if action:
+                # This labels the recommended action field inside the response card.
+                st.caption("recommended action")
+                # This shows the clearest next action from Agent 2.
+                st.info(f"Next action: {action}")
 
-        with summary_columns[0]:
-            # This labels the recommended action field inside the response card.
-            st.caption("recommended action")
-            # This shows the clearest next action from Agent 2.
-            st.write(chat_message.get("action", ""))
+            # This shows the contact field only when a real person or team was found in the docs.
+            if who_to_contact:
+                # This labels the contact field inside the response card.
+                st.caption("who to contact")
+                # This shows the team or person the user should contact when needed.
+                st.write(who_to_contact)
 
-        with summary_columns[1]:
-            # This labels the contact field inside the response card.
-            st.caption("who to contact")
-            # This shows the team or person the user should contact when needed.
-            st.write(chat_message.get("who_to_contact", ""))
+            # This shows the risk badge only when the answer actually involves a risk-worthy topic.
+            if risk_level:
+                # This maps the risk label to a Streamlit color token so the badge is easy to scan.
+                risk_color = {
+                    "low": "green",
+                    "medium": "orange",
+                    "high": "red",
+                }.get(str(risk_level), "gray")
+                # This renders the colored risk badge in a compact single line.
+                st.markdown(f":{risk_color}[Risk: {risk_level}]")
 
-        with summary_columns[2]:
-            # This labels the risk and confidence field group inside the response card.
-            st.caption("risk and confidence")
-            # This shows a compact line with risk level and confidence so trust is easy to judge.
-            st.write(
-                f"{chat_message.get('risk_level', 'medium')} risk • "
-                f"{chat_message.get('confidence', 0.0):.2f} confidence"
-            )
+            # This shows the next-step list only when the answer genuinely includes follow-up steps.
+            if next_steps:
+                # This labels the next step section so the user can act immediately after reading the answer.
+                st.caption("next steps")
+                for next_step in next_steps:
+                    # This renders each suggested next step as a readable bullet line.
+                    st.write(f"- {next_step}")
 
-        # This labels the next step section so the user can act immediately after reading the answer.
-        st.caption("next steps")
-        for next_step in chat_message.get("next_steps", []):
-            # This renders each suggested next step as a readable bullet line.
-            st.write(f"- {next_step}")
+    # This keeps citations tucked away so the main chat bubble stays clean but evidence remains accessible.
+    if sources or freshness:
+        # This renders the citation panel only when the answer has source metadata to show.
+        with st.expander("view sources"):
+            # This labels the sources subsection inside the expandable citation area.
+            st.caption("sources")
+            for source_name in sources:
+                # This renders each cited source on its own line.
+                st.write(f"- {source_name}")
 
-    # This keeps sources tucked away so the main chat bubble stays clean but citations remain accessible.
-    with st.expander("view sources"):
-        # This labels the sources subsection inside the expandable citation area.
-        st.caption("sources")
-        for source_name in chat_message.get("sources", []):
-            # This renders each cited source on its own line.
-            st.write(f"- {source_name}")
-
-        # This labels the freshness subsection inside the expandable citation area.
-        st.caption("freshness")
-        for freshness_item in chat_message.get("freshness", []):
-            # This reads the source name once so the line stays readable.
-            source_name = freshness_item.get("source", "unknown")
-            # This reads the freshness label once so the line stays readable.
-            freshness_label = freshness_item.get("freshness", "unknown")
-            # This renders the freshness summary for each cited source.
-            st.write(f"- {source_name}: {freshness_label}")
+            # This labels the freshness subsection inside the expandable citation area.
+            st.caption("freshness")
+            for freshness_item in freshness:
+                # This reads the source name once so the line stays readable.
+                source_name = freshness_item.get("source", "unknown")
+                # This reads the freshness label once so the line stays readable.
+                freshness_label = freshness_item.get("freshness", "unknown")
+                # This renders the freshness summary for each cited source.
+                st.write(f"- {source_name}: {freshness_label}")
 
 
 def render_role_brief(role_brief: dict[str, object] | None) -> None:
@@ -374,10 +389,9 @@ with chat_column:
             assistant_message = {
                 "role": "assistant",
                 "content": search_result["answer"],
-                "action": search_result.get("action", ""),
-                "who_to_contact": search_result.get("who_to_contact", ""),
-                "risk_level": search_result.get("risk_level", "medium"),
-                "confidence": float(search_result.get("confidence", 0.0)),
+                "action": search_result.get("action"),
+                "who_to_contact": search_result.get("who_to_contact"),
+                "risk_level": search_result.get("risk_level"),
                 "next_steps": search_result.get("next_steps", []),
                 "sources": search_result.get("sources", []),
                 "freshness": search_result.get("freshness", []),
@@ -388,10 +402,9 @@ with chat_column:
             assistant_message = {
                 "role": "assistant",
                 "content": f"backend error: {exc}",
-                "action": "",
-                "who_to_contact": "",
-                "risk_level": "medium",
-                "confidence": 0.0,
+                "action": None,
+                "who_to_contact": None,
+                "risk_level": None,
                 "next_steps": [],
                 "sources": [],
                 "freshness": [],
@@ -402,10 +415,9 @@ with chat_column:
             assistant_message = {
                 "role": "assistant",
                 "content": f"request failed: {exc}",
-                "action": "",
-                "who_to_contact": "",
-                "risk_level": "medium",
-                "confidence": 0.0,
+                "action": None,
+                "who_to_contact": None,
+                "risk_level": None,
                 "next_steps": [],
                 "sources": [],
                 "freshness": [],
