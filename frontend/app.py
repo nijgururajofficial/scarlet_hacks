@@ -11,365 +11,260 @@ from api_client import (
     search_knowledge,
 )
 
-# This configures the Streamlit page before any UI elements are rendered.
+# This configures the page before any visible elements are rendered.
 st.set_page_config(
     page_title="Day 1 Brain",
     page_icon=":books:",
     layout="wide",
+    initial_sidebar_state="expanded",
 )
 
-# This injects light styling so the second agent feels more like a dedicated chat component.
+# This keeps styling minimal so the app mostly inherits Streamlit's built-in dark theme.
 st.markdown(
     """
     <style>
     .main .block-container {
-        max-width: 1320px;
-        padding-top: 2rem;
-    }
-    .chat-shell {
-        border: 1px solid rgba(120, 120, 120, 0.22);
-        border-radius: 18px;
-        padding: 1rem 1.2rem;
-        background: linear-gradient(180deg, rgba(34, 41, 57, 0.92), rgba(20, 24, 33, 0.96));
-        margin-bottom: 1rem;
-    }
-    .chat-shell h3 {
-        margin: 0 0 0.35rem 0;
-        color: #f8fafc;
-        font-size: 1.2rem;
-    }
-    .chat-shell p {
-        margin: 0;
-        color: #cbd5e1;
-        font-size: 0.95rem;
-    }
-    .status-pill {
-        display: inline-block;
-        border: 1px solid rgba(148, 163, 184, 0.35);
-        border-radius: 999px;
-        padding: 0.22rem 0.65rem;
-        margin-right: 0.45rem;
-        margin-top: 0.55rem;
-        color: #e2e8f0;
-        font-size: 0.82rem;
+        max-width: 1100px;
+        padding-top: 1.4rem;
     }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-# This initializes the chat history once so messages persist across reruns.
+# This backend role stays compatible with the current backend while the UI presents it as software engineer.
+BACKEND_ROLE = "junior engineer"
+# This label is what the frontend shows everywhere instead of exposing role choices.
+DISPLAY_ROLE = "Software Engineer"
+# This keeps the app limited to the two product experiences the user asked for.
+NAV_OPTIONS = (
+    "Briefing Agent",
+    "Conversational Agent",
+)
+# This stores a few starter prompts so the chatbot page feels usable immediately.
+QUICK_PROMPTS = (
+    "How do I get DB access?",
+    "How do I run tests locally?",
+    "Who should I contact if I get blocked?",
+)
+
+# This initializes chat history once so the conversation persists across reruns.
 if "chat_messages" not in st.session_state:
-    # This stores prior user and assistant messages for the chat transcript.
+    # This stores user and assistant turns for the conversational agent page.
     st.session_state.chat_messages = []
 
-# This initializes the latest role brief so the cards can persist after generation.
+# This initializes the latest role brief so the briefing page can render cached results.
 if "role_brief" not in st.session_state:
-    # This stores the most recently generated brief payload.
+    # This stores the most recently generated Agent 1 brief payload.
     st.session_state.role_brief = None
 
-# This initializes the last ingest result so the UI can show ingestion counts after reruns.
+# This initializes the latest ingest summary so upload results can be shown across pages.
 if "ingest_result" not in st.session_state:
-    # This stores the latest ingest summary from the backend.
+    # This stores document and chunk totals after ingestion.
     st.session_state.ingest_result = None
 
-# This initializes backend health so the page can render a status banner on first load.
+# This initializes backend health once so the status can be reused across the layout.
 if "health_payload" not in st.session_state:
-    # This stores the most recent backend health response when available.
+    # This stores the latest backend status response when reachable.
     st.session_state.health_payload = None
 
-
-def render_answer_details(chat_message: dict[str, object]) -> None:
-    # This reads optional assistant metadata once so rendering logic can stay concise below.
-    action = chat_message.get("action")
-    # This reads the optional contact field once so rendering logic can stay concise below.
-    who_to_contact = chat_message.get("who_to_contact")
-    # This reads the optional risk field once so rendering logic can stay concise below.
-    risk_level = chat_message.get("risk_level")
-    # This reads next steps once so rendering logic can stay concise below.
-    next_steps = chat_message.get("next_steps", [])
-    # This reads sources once so the citation expander can be shown only when useful.
-    sources = chat_message.get("sources", [])
-    # This reads freshness once so the citation expander can include document recency.
-    freshness = chat_message.get("freshness", [])
-
-    # This shows the decision card only when the answer actually includes actionable structured fields.
-    if action or who_to_contact or risk_level or next_steps:
-        # This renders the optional answer metadata in a bordered card so only relevant fields appear.
-        with st.container(border=True):
-            # This shows the next action only when the answer truly requires one.
-            if action:
-                # This labels the recommended action field inside the response card.
-                st.caption("recommended action")
-                # This shows the clearest next action from Agent 2.
-                st.info(f"Next action: {action}")
-
-            # This shows the contact field only when a real person or team was found in the docs.
-            if who_to_contact:
-                # This labels the contact field inside the response card.
-                st.caption("who to contact")
-                # This shows the team or person the user should contact when needed.
-                st.write(who_to_contact)
-
-            # This shows the risk badge only when the answer actually involves a risk-worthy topic.
-            if risk_level:
-                # This maps the risk label to a Streamlit color token so the badge is easy to scan.
-                risk_color = {
-                    "low": "green",
-                    "medium": "orange",
-                    "high": "red",
-                }.get(str(risk_level), "gray")
-                # This renders the colored risk badge in a compact single line.
-                st.markdown(f":{risk_color}[Risk: {risk_level}]")
-
-            # This shows the next-step list only when the answer genuinely includes follow-up steps.
-            if next_steps:
-                # This labels the next step section so the user can act immediately after reading the answer.
-                st.caption("next steps")
-                for next_step in next_steps:
-                    # This renders each suggested next step as a readable bullet line.
-                    st.write(f"- {next_step}")
-
-    # This keeps citations tucked away so the main chat bubble stays clean but evidence remains accessible.
-    if sources or freshness:
-        # This renders the citation panel only when the answer has source metadata to show.
-        with st.expander("view sources"):
-            # This labels the sources subsection inside the expandable citation area.
-            st.caption("sources")
-            for source_name in sources:
-                # This renders each cited source on its own line.
-                st.write(f"- {source_name}")
-
-            # This labels the freshness subsection inside the expandable citation area.
-            st.caption("freshness")
-            for freshness_item in freshness:
-                # This reads the source name once so the line stays readable.
-                source_name = freshness_item.get("source", "unknown")
-                # This reads the freshness label once so the line stays readable.
-                freshness_label = freshness_item.get("freshness", "unknown")
-                # This renders the freshness summary for each cited source.
-                st.write(f"- {source_name}: {freshness_label}")
+# This keeps the selected navigation tab stable across reruns.
+if "active_page" not in st.session_state:
+    # This defaults the app to the conversational page because that is the main daily-use flow.
+    st.session_state.active_page = "Conversational Agent"
 
 
-def render_role_brief(role_brief: dict[str, object] | None) -> None:
-    # This handles the empty state so the side panel stays informative before any brief is generated.
-    if not role_brief:
-        # This nudges the user to create a brief without taking over the main chat surface.
-        st.info("generate a role brief to pin onboarding context next to the chat")
+def render_sources(source_docs: list[str]) -> None:
+    # This skips the section when there are no source docs to show.
+    if not source_docs:
+        # This exits early because an empty source section adds noise without value.
         return
 
-    # This labels the brief with the active role so the supporting panel stays grounded.
-    st.caption(f"brief for {role_brief['role']}")
+    # This labels the source list so the user can inspect grounding details when needed.
+    st.caption("Sources")
+    for source_doc in source_docs:
+        # This renders each source as a simple bullet line to keep the layout clean.
+        st.write(f"- `{source_doc}`")
 
-    # This groups must-knows inside a compact card so the panel remains readable.
-    with st.container(border=True):
-        # This labels the must-know section.
-        st.markdown("**must knows**")
-        for item in role_brief.get("must_knows", []):
-            # This renders each must-know as a readable bullet line.
-            st.write(f"- {item}")
 
-    # This groups tools inside a second compact card so setup items stay easy to scan.
-    with st.container(border=True):
-        # This labels the tools section.
-        st.markdown("**tools checklist**")
-        for item in role_brief.get("tools", []):
-            # This renders each setup item as a readable bullet line.
-            st.write(f"- {item}")
+def render_brief(role_brief: dict[str, object] | None) -> None:
+    # This shows a helpful empty state until the brief is generated.
+    if not role_brief:
+        # This prompts the user to run the briefing flow before expecting content.
+        st.info("Generate the brief to see onboarding context here.")
+        return
 
-    # This groups contacts inside a third compact card so the user can find owners quickly.
-    with st.container(border=True):
-        # This labels the contacts section.
-        st.markdown("**key contacts**")
-        for contact in role_brief.get("contacts", []):
-            # This extracts the person name once so the display line stays readable.
-            contact_name = contact.get("name", "unknown")
-            # This extracts the reason once so the display line stays readable.
-            contact_reason = contact.get("reason", "")
-            # This extracts the source once so the display line stays readable.
-            contact_source = contact.get("source", "")
-            # This renders the contact line in a compact readable format.
-            st.write(f"- **{contact_name}** - {contact_reason} ({contact_source})")
+    # This lays out the brief content in two simple columns.
+    left_column, right_column = st.columns([1.0, 1.15], gap="large")
 
-    # This groups the roadmap inside a fourth card so the onboarding timeline stays nearby.
-    with st.container(border=True):
-        # This labels the roadmap section.
-        st.markdown("**30-day roadmap**")
-        # This reads the roadmap once so week sections can be rendered from the same payload.
-        roadmap = role_brief.get("roadmap", {})
-        for roadmap_label, roadmap_key in [
-            ("week 1", "week_1"),
-            ("week 2", "week_2"),
-            ("week 3-4", "week_3_4"),
-        ]:
-            # This prints the week header before its associated actions.
-            st.caption(roadmap_label)
-            for item in roadmap.get(roadmap_key, []):
-                # This renders each roadmap item as a readable bullet line.
+    with left_column:
+        # This groups must-knows into the first card.
+        with st.container(border=True):
+            # This labels the must-know section for the brief.
+            st.subheader("Must-Knows")
+            for item in role_brief.get("must_knows", []):
+                # This renders each must-know as a readable bullet line.
                 st.write(f"- {item}")
 
-    # This groups sources inside a final card so provenance stays visible without crowding the chat.
-    with st.container(border=True):
-        # This labels the source section.
-        st.markdown("**sources**")
-        for source_name in role_brief.get("sources", []):
-            # This renders each source name on its own line for quick scanning.
-            st.write(f"- {source_name}")
+        # This groups tools into the second card.
+        with st.container(border=True):
+            # This labels the tools section for the brief.
+            st.subheader("Essential Tools")
+            for item in role_brief.get("tools", []):
+                # This renders each tool item as a readable bullet line.
+                st.write(f"- {item}")
+
+        # This groups contacts into the third card.
+        with st.container(border=True):
+            # This labels the contacts section for the brief.
+            st.subheader("Key Contacts")
+            for contact in role_brief.get("contacts", []):
+                # This reads the contact name once so the display stays concise.
+                contact_name = contact.get("name", "unknown")
+                # This reads the contact reason once so the display stays concise.
+                contact_reason = contact.get("reason", "")
+                # This renders the contact name in bold for easier scanning.
+                st.write(f"**{contact_name}**")
+                # This renders the reason in lighter text beneath the name.
+                st.caption(contact_reason)
+
+    with right_column:
+        # This groups the roadmap into one main card to keep the page simple.
+        with st.container(border=True):
+            # This labels the roadmap section for the brief.
+            st.subheader("30-Day Roadmap")
+            roadmap = role_brief.get("roadmap", {})
+            roadmap_columns = st.columns(3)
+
+            with roadmap_columns[0]:
+                # This labels the first roadmap window.
+                st.markdown("**Week 1**")
+                for item in roadmap.get("week_1", []):
+                    # This renders each week 1 item as a readable bullet line.
+                    st.write(f"- {item}")
+
+            with roadmap_columns[1]:
+                # This labels the second roadmap window.
+                st.markdown("**Week 2**")
+                for item in roadmap.get("week_2", []):
+                    # This renders each week 2 item as a readable bullet line.
+                    st.write(f"- {item}")
+
+            with roadmap_columns[2]:
+                # This labels the later roadmap window.
+                st.markdown("**Week 3-4**")
+                for item in roadmap.get("week_3_4", []):
+                    # This renders each week 3-4 item as a readable bullet line.
+                    st.write(f"- {item}")
+
+        # This groups supporting sources into a separate simple card.
+        with st.container(border=True):
+            # This labels the grounded sources section for the brief.
+            st.subheader("Grounded Sources")
+            # This renders the supporting source list for the brief.
+            render_sources(role_brief.get("sources", []))
 
 
-# This renders the top-level title and framing copy for the product demo.
-st.title("Day 1 Brain")
-# This explains the product value in one line before the user starts interacting with it.
-st.caption("Upload company docs, choose a role, and chat with a role-aware onboarding assistant.")
+def render_assistant_details(chat_message: dict[str, object]) -> None:
+    # This reads the optional next action once so the rendering logic stays concise.
+    action = chat_message.get("action")
+    # This reads the optional contact once so the rendering logic stays concise.
+    who_to_contact = chat_message.get("who_to_contact")
+    # This reads the optional risk level once so the rendering logic stays concise.
+    risk_level = chat_message.get("risk_level")
+    # This reads next steps once so the rendering logic stays concise.
+    next_steps = chat_message.get("next_steps", [])
+    # This reads sources once so the rendering logic stays concise.
+    source_docs = chat_message.get("sources", [])
 
-# This keeps the backend URL configurable without hardcoding it in multiple places.
-with st.sidebar:
-    # This labels the settings area so backend connection state is easy to find.
-    st.header("Backend")
-    # This lets the user override the API address when running the backend elsewhere.
-    backend_url = st.text_input(
-        "Backend URL",
-        value=DEFAULT_BACKEND_URL,
-        help="Local FastAPI backend address.",
-    ).rstrip("/")
+    # This renders extra answer metadata inside an expander so the chat stays GPT-like and uncluttered.
+    if action or who_to_contact or risk_level or next_steps or source_docs:
+        with st.expander("Details"):
+            if action:
+                # This labels the next action field when it exists.
+                st.caption("Next action")
+                # This renders the action text returned by the backend.
+                st.write(action)
 
-    try:
-        # This pings the backend so the UI can show live status before any actions are taken.
-        st.session_state.health_payload = get_health(base_url=backend_url)
-        # This shows a positive status when the backend is reachable.
-        st.success(
-            f"backend online • {st.session_state.health_payload['docs_loaded']} docs • "
-            f"{st.session_state.health_payload['chunks_loaded']} chunks"
-        )
-    except Exception:
-        # This clears stale health state when the backend cannot be reached.
-        st.session_state.health_payload = None
-        # This warns the user that the frontend cannot talk to the API yet.
-        st.warning("backend offline • start FastAPI on port 8000")
+            if who_to_contact:
+                # This labels the contact field when it exists.
+                st.caption("Who to contact")
+                # This renders the contact text returned by the backend.
+                st.write(who_to_contact)
 
-    # This draws a divider so connection settings are visually separated from role and upload controls.
-    st.divider()
+            if risk_level:
+                # This labels the risk field when it exists.
+                st.caption("Risk")
+                # This renders the risk value returned by the backend.
+                st.write(risk_level)
 
-    # This defines the supported roles so the frontend and backend stay aligned.
-    role_options = [
-        "junior engineer",
-        "product manager",
-        "marketing",
-        "hr",
-    ]
+            if next_steps:
+                # This labels the next-step list when it exists.
+                st.caption("Next steps")
+                for next_step in next_steps:
+                    # This renders each next step as a readable bullet line.
+                    st.write(f"- {next_step}")
 
-    # This labels the role controls so it is obvious what persona shapes the chat.
-    st.header("Role")
-    # This lets the user choose the role that should shape both the brief and chat answers.
-    selected_role = st.selectbox("Choose a role", options=role_options)
+            if source_docs:
+                # This renders the answer sources beneath the action metadata.
+                render_sources(source_docs)
 
-    if st.button("Generate role brief", use_container_width=True):
+
+def render_briefing_page(backend_url: str) -> None:
+    # This introduces the briefing experience in simple language.
+    st.subheader("Briefing Agent")
+    st.caption("Generate onboarding brief from the uploaded company documents.")
+
+    # This gives the user an inline action to generate the brief from the main page.
+    if st.button("Generate brief", use_container_width=True):
         try:
-            # This requests a fresh Agent 1 brief for the currently selected role.
+            # This calls the backend briefing route using the hardcoded backend role.
             st.session_state.role_brief = generate_brief(
-                role=selected_role,
+                role=BACKEND_ROLE,
                 base_url=backend_url,
             )
         except BackendApiError as exc:
-            # This shows backend-side validation or missing-doc errors to the user.
+            # This shows backend-side validation issues in a readable way.
             st.error(str(exc))
         except Exception as exc:
-            # This catches connection errors so the page remains usable.
-            st.error(f"failed to generate brief: {exc}")
+            # This shows connection-level failures in a readable way.
+            st.error(f"Failed to generate brief: {exc}")
 
-    if st.button("Clear chat", use_container_width=True):
-        # This resets the conversation transcript so the user can start a clean chat.
-        st.session_state.chat_messages = []
+    # This renders the cached software engineer brief beneath the heading.
+    render_brief(st.session_state.role_brief)
 
-    # This draws a divider so role controls are separated from document ingestion controls.
-    st.divider()
-    # This labels the upload section where the knowledge base is managed.
-    st.header("Documents")
 
-    # This lets the user choose one or more supported documents to ingest.
-    uploaded_files = st.file_uploader(
-        "Upload company docs",
-        type=["pdf", "md", "txt"],
-        accept_multiple_files=True,
-    )
+def render_conversational_page(backend_url: str) -> None:
+    # This introduces the conversational experience in simple language.
+    st.subheader("Conversational Agent")
+    st.caption("Chat with the onboarding assistant using the uploaded documents as context.")
 
-    if st.button("Ingest documents", use_container_width=True):
-        try:
-            # This sends the selected documents to the backend so the FAISS index is rebuilt.
-            st.session_state.ingest_result = ingest_documents(
-                uploaded_files=uploaded_files or [],
-                base_url=backend_url,
-            )
-            # This clears stale brief data because the knowledge base has changed.
-            st.session_state.role_brief = None
-            # This clears chat history because prior answers may no longer match the new docs.
-            st.session_state.chat_messages = []
-            # This refreshes health after ingest so the sidebar status stays accurate.
-            st.session_state.health_payload = get_health(base_url=backend_url)
-            # This confirms the new knowledge base size after a successful upload.
-            st.success(
-                f"loaded {st.session_state.ingest_result['docs']} docs and "
-                f"{st.session_state.ingest_result['chunks']} chunks"
-            )
-        except BackendApiError as exc:
-            # This shows backend validation or processing failures directly to the user.
-            st.error(str(exc))
-        except Exception as exc:
-            # This catches connection-level issues so the app does not crash on request failures.
-            st.error(f"failed to ingest documents: {exc}")
-
-    # This repeats the latest ingest summary so the user can still see it after reruns.
-    if st.session_state.ingest_result:
-        # This surfaces the current ingest totals in a compact sidebar summary.
-        st.caption(
-            f"{st.session_state.ingest_result['docs']} docs loaded • "
-            f"{st.session_state.ingest_result['chunks']} chunks indexed"
-        )
-
-# This lays out the chat shell and the supporting context panel side by side.
-chat_column, context_column = st.columns([1.7, 1.0], gap="large")
-
-with chat_column:
-    # This renders a styled shell header so the second agent feels like a dedicated chatbot component.
-    st.markdown(
-        f"""
-        <div class="chat-shell">
-            <h3>Agent 2 · Knowledge Search</h3>
-            <p>Ask questions about onboarding, access, tools, process, or ownership and get a role-aware answer.</p>
-            <span class="status-pill">role: {selected_role}</span>
-            <span class="status-pill">chat-first mode</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # This offers quick prompts so the chatbot component feels interactive even before the first message.
+    # This offers a few starter prompts so the chat does not feel empty on first load.
     prompt_columns = st.columns(3)
-    # This stores the selected starter prompt when a quick action button is clicked.
     quick_prompt = ""
 
     with prompt_columns[0]:
-        if st.button("How do I get DB access?", use_container_width=True):
-            # This seeds a realistic access question so the chat can start instantly.
-            quick_prompt = "How do I get DB access?"
+        if st.button(QUICK_PROMPTS[0], use_container_width=True):
+            # This seeds the first starter prompt when the button is clicked.
+            quick_prompt = QUICK_PROMPTS[0]
 
     with prompt_columns[1]:
-        if st.button("Who should I ask for help?", use_container_width=True):
-            # This seeds a common onboarding ownership question so the chat can start instantly.
-            quick_prompt = "Who should I ask for help if I get blocked?"
+        if st.button(QUICK_PROMPTS[1], use_container_width=True):
+            # This seeds the second starter prompt when the button is clicked.
+            quick_prompt = QUICK_PROMPTS[1]
 
     with prompt_columns[2]:
-        if st.button("What should I do this week?", use_container_width=True):
-            # This seeds a roadmap question so the chat can start instantly.
-            quick_prompt = "What should I focus on during my first week?"
+        if st.button(QUICK_PROMPTS[2], use_container_width=True):
+            # This seeds the third starter prompt when the button is clicked.
+            quick_prompt = QUICK_PROMPTS[2]
 
-    # This captures a free-form chat input from the user at the bottom of the page.
-    typed_question = st.chat_input("Ask agent 2 about onboarding, access, tools, or team processes")
-    # This prefers the typed message but allows quick prompt buttons to trigger the same chat flow.
+    # This captures the next user question using Streamlit's built-in chat input for a familiar chatbot feel.
+    typed_question = st.chat_input("Ask about setup, tooling, process, access, or ownership")
+    # This prefers typed input but lets quick prompt buttons trigger the same chat flow.
     question = typed_question or quick_prompt
 
     if question:
-        # This appends the user message immediately so it appears in the transcript right away.
+        # This appends the user question first so the transcript stays chronological.
         st.session_state.chat_messages.append(
             {
                 "role": "user",
@@ -378,94 +273,165 @@ with chat_column:
         )
 
         try:
-            # This sends the user question to Agent 2 for a grounded role-aware answer.
+            # This calls the backend search route using the hardcoded backend role.
             search_result = search_knowledge(
-                role=selected_role,
+                role=BACKEND_ROLE,
                 question=question,
                 base_url=backend_url,
             )
 
-            # This stores the assistant message so it persists across reruns.
-            assistant_message = {
-                "role": "assistant",
-                "content": search_result["answer"],
-                "action": search_result.get("action"),
-                "who_to_contact": search_result.get("who_to_contact"),
-                "risk_level": search_result.get("risk_level"),
-                "next_steps": search_result.get("next_steps", []),
-                "sources": search_result.get("sources", []),
-                "freshness": search_result.get("freshness", []),
-            }
-            st.session_state.chat_messages.append(assistant_message)
+            # This stores the assistant response so the transcript persists across reruns.
+            st.session_state.chat_messages.append(
+                {
+                    "role": "assistant",
+                    "content": search_result["answer"],
+                    "action": search_result.get("action"),
+                    "who_to_contact": search_result.get("who_to_contact"),
+                    "risk_level": search_result.get("risk_level"),
+                    "next_steps": search_result.get("next_steps", []),
+                    "sources": search_result.get("sources", []),
+                    "freshness": search_result.get("freshness", []),
+                }
+            )
         except BackendApiError as exc:
-            # This stores the backend error in the chat so the failure remains visible in context.
-            assistant_message = {
-                "role": "assistant",
-                "content": f"backend error: {exc}",
-                "action": None,
-                "who_to_contact": None,
-                "risk_level": None,
-                "next_steps": [],
-                "sources": [],
-                "freshness": [],
-            }
-            st.session_state.chat_messages.append(assistant_message)
+            # This stores backend failures as assistant messages so the chat layout stays consistent.
+            st.session_state.chat_messages.append(
+                {
+                    "role": "assistant",
+                    "content": f"backend error: {exc}",
+                    "action": None,
+                    "who_to_contact": None,
+                    "risk_level": None,
+                    "next_steps": [],
+                    "sources": [],
+                    "freshness": [],
+                }
+            )
         except Exception as exc:
-            # This stores unexpected request failures so the conversation transcript remains coherent.
-            assistant_message = {
-                "role": "assistant",
-                "content": f"request failed: {exc}",
-                "action": None,
-                "who_to_contact": None,
-                "risk_level": None,
-                "next_steps": [],
-                "sources": [],
-                "freshness": [],
-            }
-            st.session_state.chat_messages.append(assistant_message)
+            # This stores unexpected request failures as assistant messages so the chat layout stays consistent.
+            st.session_state.chat_messages.append(
+                {
+                    "role": "assistant",
+                    "content": f"request failed: {exc}",
+                    "action": None,
+                    "who_to_contact": None,
+                    "risk_level": None,
+                    "next_steps": [],
+                    "sources": [],
+                    "freshness": [],
+                }
+            )
 
-    # This creates a fixed-height panel so previous chats stay scrollable instead of stretching the page.
-    chat_history_panel = st.container(height=560, border=True)
+    # This bounds chat history so it behaves more like a dedicated chat window.
+    chat_panel = st.container(height=560, border=True)
 
-    with chat_history_panel:
-        # This shows an assistant welcome card before the user has started the conversation.
+    with chat_panel:
+        # This shows a small assistant greeting before the first message exists.
         if not st.session_state.chat_messages:
             with st.chat_message("assistant", avatar="🤖"):
-                # This introduces the chat experience so the user knows what kinds of questions to ask.
+                # This introduces the chat in a simple GPT-like style.
                 st.markdown(
-                    f"I’m ready to answer onboarding questions for a **{selected_role}**. "
-                    "Try one of the quick prompts above or ask your own question below."
+                    "I'm ready to help with onboarding questions"
+                    "Try a starter prompt above or ask your own question."
                 )
 
-        # This replays prior chat messages inside the scrollable panel so history stays contained.
+        # This replays the full transcript inside the bounded chat panel.
         for chat_message in st.session_state.chat_messages:
             with st.chat_message(
                 chat_message["role"],
                 avatar="🤖" if chat_message["role"] == "assistant" else "🧑",
             ):
-                # This renders the stored message body for each chat turn.
+                # This renders the message body as markdown like a normal chatbot.
                 st.markdown(chat_message["content"])
 
-                # This renders assistant metadata in a structured response card when available.
                 if chat_message["role"] == "assistant":
-                    render_answer_details(chat_message)
+                    # This renders optional metadata below assistant answers without cluttering the main response.
+                    render_assistant_details(chat_message)
 
-with context_column:
-    # This labels the supporting context area so the brief feels secondary to the main chat surface.
-    st.subheader("Chat Context")
 
-    # This shows lightweight session info so the user can see the active chat setup at a glance.
-    with st.container(border=True):
-        # This labels the active role line in the context panel.
-        st.caption("active role")
-        # This shows the selected role driving the chat responses.
-        st.write(selected_role)
-        # This labels the message count line in the context panel.
-        st.caption("messages")
-        # This shows the current transcript length so the user knows how much context exists.
-        st.write(len(st.session_state.chat_messages))
+# This renders the top-level title before the page-specific content below.
+st.title("Day 1 Brain")
+st.caption("A simple onboarding workspace")
 
-    # This tucks the role brief into an expander so it supports the chat without competing with it.
-    with st.expander("view role brief", expanded=bool(st.session_state.role_brief)):
-        # This renders the cached role brief in a compact supporting panel.
-        render_role_brief(st.session_state.role_brief)
+# This keeps app controls in the sidebar so the main content stays focused.
+with st.sidebar:
+    # This labels the app in the sidebar.
+    st.markdown("## Day 1 Brain")
+
+    backend_url = DEFAULT_BACKEND_URL
+
+    try:
+        # This refreshes backend health so the sidebar status stays current.
+        st.session_state.health_payload = get_health(base_url=backend_url)
+        st.success(
+            f"{st.session_state.health_payload['docs_loaded']} docs • "
+            f"{st.session_state.health_payload['chunks_loaded']} chunks"
+        )
+    except Exception:
+        # This clears stale backend state when the API cannot be reached.
+        st.session_state.health_payload = None
+        st.warning("backend offline")
+
+    st.divider()
+    st.subheader("Upload docs")
+
+    uploaded_files = st.file_uploader(
+        "PDF, Markdown, or Text",
+        type=["pdf", "md", "txt"],
+        accept_multiple_files=True,
+    )
+
+    if st.button("Upload and index", use_container_width=True):
+        try:
+            # This sends the uploaded files to the backend so the in-memory index is rebuilt.
+            st.session_state.ingest_result = ingest_documents(
+                uploaded_files=uploaded_files or [],
+                base_url=backend_url,
+            )
+            # This clears the cached brief because the document set changed.
+            st.session_state.role_brief = None
+            # This clears the chat transcript because old answers may no longer match the new docs.
+            st.session_state.chat_messages = []
+            # This refreshes backend health after a successful ingest.
+            st.session_state.health_payload = get_health(base_url=backend_url)
+            st.success(
+                f"Loaded {st.session_state.ingest_result['docs']} docs and "
+                f"{st.session_state.ingest_result['chunks']} chunks."
+            )
+        except BackendApiError as exc:
+            # This shows backend validation failures in a readable way.
+            st.error(str(exc))
+        except Exception as exc:
+            # This shows connection-level failures in a readable way.
+            st.error(f"Failed to upload docs: {exc}")
+
+    if st.session_state.ingest_result:
+        # This surfaces the latest ingest totals in the sidebar.
+        st.caption(
+            f"Current index: {st.session_state.ingest_result['docs']} docs, "
+            f"{st.session_state.ingest_result['chunks']} chunks"
+        )
+
+    st.divider()
+
+    active_page = st.radio(
+        "View",
+        options=NAV_OPTIONS,
+        index=NAV_OPTIONS.index(st.session_state.active_page),
+    )
+    st.session_state.active_page = active_page
+
+    if active_page == "Conversational Agent":
+        if st.button("Clear chat", use_container_width=True):
+            # This resets the chat transcript so the conversational page can start clean.
+            st.session_state.chat_messages = []
+
+# This shows a small warning when the backend is offline so the user understands why actions may fail.
+if not st.session_state.health_payload:
+    st.warning("The backend is offline, so upload, briefing, and chat actions may fail.")
+
+# This routes between the two simplified product experiences.
+if active_page == "Briefing Agent":
+    render_briefing_page(backend_url=backend_url)
+else:
+    render_conversational_page(backend_url=backend_url)

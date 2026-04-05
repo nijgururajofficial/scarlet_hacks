@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
+import re
 from typing import Sequence
 
 import faiss
@@ -12,6 +13,9 @@ from openai import OpenAI
 
 # This set defines which document formats the ingestion flow knows how to parse.
 SUPPORTED_EXTENSIONS = {".pdf", ".md", ".txt"}
+
+# This regex matches the temporary UUID prefix added during upload so source labels can show the original filename.
+UPLOAD_PREFIX_PATTERN = re.compile(r"^[0-9a-f]{32}_(.+)$")
 
 
 @dataclass(slots=True)
@@ -320,7 +324,7 @@ def build_knowledge_base(
             chunks.append(
                 SourceChunk(
                     source_path=str(path_obj),
-                    source_name=path_obj.name,
+                    source_name=_display_source_name(path_obj.name),
                     chunk_id=chunk_id,
                     chunk_text=chunk,
                     chunk_index=chunk_index,
@@ -388,3 +392,16 @@ def _build_freshness_tag(modified_at: datetime) -> str:
 
     # This flags older content so users know policy answers may need validation.
     return "stale"
+
+
+def _display_source_name(file_name: str) -> str:
+    # This checks whether the file name includes the temporary upload UUID prefix.
+    pattern_match = UPLOAD_PREFIX_PATTERN.match(file_name)
+
+    # This returns the original file name when the UUID prefix is present.
+    if pattern_match:
+        # This keeps source labels clean in the UI while preserving collision-safe temp files on disk.
+        return pattern_match.group(1)
+
+    # This returns the unmodified file name for demo docs and other non-uploaded files.
+    return file_name
