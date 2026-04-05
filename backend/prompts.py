@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-# This keeps prompt-related helpers isolated so agent logic stays focused on orchestration.
-
-# This tuple defines the only roles the backend currently supports.
 SUPPORTED_ROLES = (
     "junior engineer",
     "product manager",
@@ -10,7 +7,6 @@ SUPPORTED_ROLES = (
     "hr",
 )
 
-# This central mapping keeps each role's context together so prompt updates stay easy to audit.
 ROLE_GUIDANCE = {
     "junior engineer": (
         "Focus on engineering setup, codebase workflows, deployment paths, security boundaries, "
@@ -32,28 +28,20 @@ ROLE_GUIDANCE = {
 
 
 def normalize_role(role: str) -> str:
-    # This normalizes loose UI input so callers can pass user-friendly role labels safely.
     normalized_role = role.strip().lower()
 
-    # This blocks unsupported roles early so downstream prompts never drift into undefined behavior.
     if normalized_role not in SUPPORTED_ROLES:
-        # This message shows the exact supported options so the caller can recover quickly.
         raise ValueError(
             f"Unsupported role '{role}'. Expected one of: {', '.join(SUPPORTED_ROLES)}"
         )
 
-    # This returns the canonical role key used across all prompt builders.
     return normalized_role
 
 
 def build_brief_system_prompt(role: str) -> str:
-    # This validates the role before prompt construction so prompt wording stays consistent.
     normalized_role = normalize_role(role)
-
-    # This pulls role-specific guidance so the model tailors the brief to actual onboarding needs.
     role_guidance = ROLE_GUIDANCE[normalized_role]
 
-    # This system prompt pushes the model toward a structured, role-aware onboarding brief.
     return f"""
 You are Agent 1, the Knowledge Transfer Agent for a company onboarding assistant.
 You are proactively briefing a new {normalized_role}. They have not asked a question yet.
@@ -87,13 +75,9 @@ Return valid JSON only using this exact shape:
 
 
 def build_search_system_prompt(role: str) -> str:
-    # This validates the role before prompt construction so the model uses a known persona.
     normalized_role = normalize_role(role)
-
-    # This pulls role-specific guidance so the answer is role-aware instead of generic.
     role_guidance = ROLE_GUIDANCE[normalized_role]
 
-    # This system prompt enforces markdown formatting per question type so answers never come out as flat paragraphs.
     return f"""You are Day 1 Brain, an onboarding assistant for a new {normalized_role}.
 You answer questions strictly from the provided company documents.
 
@@ -134,7 +118,6 @@ Leave them null for straightforward informational answers."""
 
 
 def build_brief_user_prompt(context_block: str) -> str:
-    # This user prompt packages the retrieved knowledge so the model can synthesize a complete brief.
     return f"""
 Company onboarding context:
 {context_block}
@@ -145,7 +128,6 @@ Return JSON only.
 
 
 def build_answer_user_prompt(question: str, context_block: str, role: str) -> str:
-    # This user prompt reinforces markdown formatting and verbatim citations so the answer stays grounded.
     return f"""QUESTION (from a new {role}):
 {question}
 

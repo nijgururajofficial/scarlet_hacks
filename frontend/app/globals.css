@@ -268,7 +268,6 @@ select {
 }
 
 .analysis_shell {
-  /* This keeps the analysis screen fixed to the viewport instead of growing with chat history. */
   display: flex;
   flex-direction: column;
   max-height: calc(100vh - 36px);
