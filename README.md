@@ -1,116 +1,137 @@
-# Day 1 Brain
+# Day1 Brain
 
-> Onboarding copilot that turns company docs into a personalized knowledge brief for new hires.
+Day1 Brain is an onboarding assistant that ingests internal docs, builds a lightweight knowledge base, generates a proactive onboarding brief, and answers follow-up questions with grounded sources.
 
-*"Drop your company docs. Select your role. Get everything you need to know — before you even ask."*
+## What It Does
 
-## Features
+- Uploads `.pdf`, `.md`, and `.txt` documents to the backend
+- Builds an in-memory FAISS knowledge base from the uploaded files
+- Generates a structured onboarding brief with must-knows, tools, contacts, and a roadmap
+- Answers free-form questions using retrieval-augmented generation
+- Shows cited sources and freshness metadata in the chat response details
 
-### Knowledge Transfer Agent
-- Triggered on role selection
-- Proactively reads all documents
-- Generates role-specific briefs with no query needed
-- Outputs: must-knows, tools checklist, key contacts, 30-day roadmap
+## Current App Setup
 
-### Knowledge Search Agent
-- Answers free-form questions by searching the vector knowledge base (RAG)
-- Provides role-aware answers with source documents and freshness tags
+- The backend is a FastAPI app in `backend`
+- The frontend is a Next.js app in `frontend`
+- The frontend currently sends a fixed backend role of `junior engineer`
 
 ## Tech Stack
 
 | Layer | Tool |
 |---|---|
-| UI | Streamlit |
+| Frontend | Next.js + React |
+| Backend | FastAPI |
 | PDF Parsing | PyMuPDF |
 | Vector Store | FAISS (in-memory) |
 | AI | OpenAI API |
-| Language | Python 3.11+ |
+| Language | Python 3.11+ and Node.js |
 
 ## Prerequisites
 
 - Python 3.11+
+- Node.js 18+
+- npm
 - OpenAI API key
 
 ## Installation
 
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd scarlet_hacks
-   ```
+### 1. Set the backend environment
 
-2. Set up environment variables:
-   Create a `.env` file in the `backend/` folder:
-   ```
-   OPENAI_API_KEY=your_api_key_here
-   ```
+Create `backend/.env` with:
 
-3. Install backend dependencies:
-   ```bash
-   cd backend
-   pip install -r requirements.txt
-   ```
+```env
+OPENAI_API_KEY=your_api_key_here
+```
 
-4. Install frontend dependencies:
-   ```bash
-   cd ../frontend
-   pip install -r requirements.txt
-   ```
+### 2. Install backend dependencies
 
-## Running the Application
+```bash
+cd backend
+pip install -r requirements.txt
+```
 
-You'll need two terminal windows:
+### 3. Install frontend dependencies
 
-**Terminal 1 - Start the backend server:**
+```bash
+cd ../frontend
+npm install
+```
+
+## Running the App
+
+Run the backend and frontend in separate terminals.
+
+### Terminal 1: backend
+
+```bash
+cd backend
+python .\main.py
+```
+
+You can also run:
+
 ```bash
 cd backend
 uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
 
-**Terminal 2 - Start the frontend:**
+### Terminal 2: frontend
+
 ```bash
 cd frontend
-streamlit run app.py
+npm run dev
 ```
 
-## Usage
+## Local URLs
 
-1. Open your browser to the Streamlit URL (usually http://localhost:8501)
-2. Upload company documents (PDF, MD, TXT formats supported)
-3. Select your role (Software Engineer)
-4. Use the Briefing Agent for comprehensive onboarding information
-5. Use the Conversational Agent for specific questions
+- Frontend: [http://localhost:3000](http://localhost:3000)
+- Backend: [http://localhost:8000](http://localhost:8000)
+- Backend health check: [http://localhost:8000/health](http://localhost:8000/health)
+
+## How To Use
+
+1. Start the backend
+2. Start the frontend
+3. Open `http://localhost:3000`
+4. Upload company documents from the sidebar
+5. Open the brief page to generate onboarding context
+6. Open the analysis page to ask questions against the loaded documents
 
 ## Project Structure
 
-```
-scarlet_hacks/
+```text
+Scarlet Hacks/
 ├── backend/
-│   ├── main.py              # FastAPI server
-│   ├── agents.py            # AI agents (transfer & search)
-│   ├── ingest.py            # Document parsing & embedding
-│   ├── prompts.py           # System prompts per role
+│   ├── main.py
+│   ├── agents.py
+│   ├── ingest.py
+│   ├── prompts.py
 │   ├── requirements.txt
-│   └── demo_docs/           # Pre-loaded example documents
-│       ├── api_docs.md
-│       ├── engineering_handbook.md
-│       ├── system_architecture.md
-│       └── transcripts/
-│           └── transcript_sprint_planning.md
+│   └── .env
 ├── frontend/
-│   ├── app.py               # Streamlit UI
-│   ├── api_client.py        # Backend API client
-│   └── requirements.txt
+│   ├── app/
+│   │   ├── layout.js
+│   │   ├── page.js
+│   │   ├── globals.css
+│   │   └── analysis/
+│   │       └── page.js
+│   ├── components/
+│   │   └── portal_app.jsx
+│   ├── package.json
+│   └── package-lock.json
 └── README.md
 ```
 
 ## API Endpoints
 
-- `GET /health` - Health check
-- `POST /ingest` - Upload and process documents
-- `POST /brief` - Generate knowledge brief
-- `POST /search` - Search knowledge base
+- `GET /health` returns backend readiness and document counts
+- `POST /ingest` uploads documents and rebuilds the knowledge base
+- `POST /brief` generates the onboarding brief
+- `POST /search` answers a question using the current knowledge base
 
-## Development
+## Notes
 
-The backend automatically loads demo documents from `demo_docs/` on startup. Additional documents can be uploaded through the UI.
+- The backend may preload documents from a repo-level `demo_docs` folder if it exists
+- Uploaded documents are stored in a temporary runtime directory and used to rebuild the in-memory index
+- The current frontend has replaced the older Streamlit UI, but the old Python frontend files still remain in `frontend`
